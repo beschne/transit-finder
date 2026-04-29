@@ -64,8 +64,8 @@ python transit_finder.py --lat 50.23 --lon 8.62 --radius 30 --name "Bad Homburg"
 ISS Transit Finder – Initialising
 ─────────────────────────────────────────────
   Fetching TLE (NORAD 25544) from Celestrak ... OK  [ISS (ZARYA)]
-  Loading planetary ephemeris (de421.bsp)   ... OK
-  TLE epoch:  2026-04-29 04:01 UTC  (age: 0.2 days)
+  Loading planetary ephemeris (de421.bsp)  ... OK
+  TLE epoch:  2026-04-29 04:01 UTC  (age: 0.4 days)
 
   Coarse scan: 60,481 steps × 10 s  ... 3 candidates.
   Fine scan: analysing 3 candidates ...
@@ -73,21 +73,27 @@ ISS Transit Finder – Initialising
 ═════════════════════════════════════════════════════════════════
   ISS TRANSIT FINDER  –  Solar & Lunar Transits
 ─────────────────────────────────────────────────────────────────
-  Location: Berlin  52.5200° N,  13.4100° E
-  Radius:   25 km
+  Location: Frankfurt  50.1100° N,  8.6800° E
+  Radius:   100 km
   Period:   2026-04-29 – 2026-05-06 UTC
 ═════════════════════════════════════════════════════════════════
 
-  # 1  LUNAR TRANSIT  🌙  –  2026-04-30
+  # 1  LUNAR TRANSIT  🌙  –  2026-05-01
 ─────────────────────────────────────────────────────────────────
-  Time (UTC):      23:38:42
-  Duration:        0.6 s
-  Min. separation: 14.7"  →  CENTRAL TRANSIT ✓  (crosses disc centre)
-  Chord coverage:  32 % of disc diameter
-  Moon position:   alt 18.7°,  az 199.0° (SSW)
-  ISS position:    alt 18.5°,  az 198.9° (SSW)
-  Best location:   52.3607° N,  13.6717° E  (~25 km from centre)
+  Time (UTC):      22:50:44
+  Duration:        1.0 s
+  Min. separation: 11.5"  →  CENTRAL TRANSIT ✓  (crosses disc centre)
+  Chord coverage:  67 % of disc diameter
+  Moon position:   alt 18.6°,  az 170.1° (S)
+  ISS position:    alt 18.8°,  az 170.2° (S)
+  Best location:   49.4730° N,  7.6867° E  (~100 km from centre)
+
+─────────────────────────────────────────────────────────────────
+  Total: 1 transit(s) found.
+═════════════════════════════════════════════════════════════════
 ```
+
+![Sample visibility corridor map for the Frankfurt lunar transit on 2026-05-01](sample_map.png)
 
 ## Output fields explained
 
