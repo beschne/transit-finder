@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-transit_finder.py  –  ISS-Transite vor Sonne und Mond
+transit_finder.py  –  ISS transits across the Sun and Moon
 
-Berechnet für die nächsten N Tage alle Überquerungen der ISS vor Sonnenscheibe
-oder Mondscheibe, sichtbar von einem definierten Radius um einen Standort.
+Calculates all ISS crossings in front of the solar or lunar disk
+for the next N days, visible from a defined radius around a location.
 
-Voraussetzungen:
+Requirements:
     pip install skyfield requests numpy
 
-Aufruf:
+Usage:
     python transit_finder.py --lat 50.11 --lon 8.68 --radius 100 --name Frankfurt
     python transit_finder.py --lat 48.14 --lon 11.58 --days 14 --radius 50
 """
@@ -22,21 +22,21 @@ import numpy as np
 import requests
 from skyfield.api import load, wgs84, EarthSatellite
 
-# ── Algorithmus-Parameter ──────────────────────────────────────────────────────
-SUN_RADIUS_DEG   = 0.2665   # mittlerer scheinbarer Radius Sonne  (~16')
-MOON_RADIUS_DEG  = 0.2575   # mittlerer scheinbarer Radius Mond   (~15.5')
-COARSE_STEP_S    = 10       # Grobscan-Schrittweite in Sekunden
-FINE_STEP_S      = 0.05     # Feinscan-Schrittweite in Sekunden
-FINE_WINDOW_S    = 70       # Feinscan-Fenster (±Sekunden um Kandidaten)
-APPROACH_DEG     = 2.0      # Grad-Schwelle zum Auslösen des Feinscans
-DEDUP_S          = 120      # Ereignisse näher als dies = selber Transit
+# ── Algorithm parameters ───────────────────────────────────────────────────────
+SUN_RADIUS_DEG   = 0.2665   # mean apparent radius of the Sun  (~16')
+MOON_RADIUS_DEG  = 0.2575   # mean apparent radius of the Moon (~15.5')
+COARSE_STEP_S    = 10       # coarse-scan time step in seconds
+FINE_STEP_S      = 0.05     # fine-scan time step in seconds
+FINE_WINDOW_S    = 70       # fine-scan window (±seconds around each candidate)
+APPROACH_DEG     = 2.0      # angular threshold that triggers the fine scan
+DEDUP_S          = 120      # events closer than this are the same transit
 NORAD_ISS        = 25544
 
 
-# ── TLE-Abruf ─────────────────────────────────────────────────────────────────
+# ── TLE retrieval ──────────────────────────────────────────────────────────────
 
 def fetch_tle(norad: int = NORAD_ISS) -> tuple[str, str, str]:
-    """Aktuelles ISS-TLE von Celestrak GP-API laden."""
+    """Fetch the current ISS TLE from the Celestrak GP API."""
     url = f"https://celestrak.org/NORAD/elements/gp.php?CATNR={norad}&FORMAT=TLE"
     try:
         r = requests.get(url, timeout=15)
@@ -45,14 +45,14 @@ def fetch_tle(norad: int = NORAD_ISS) -> tuple[str, str, str]:
         if len(lines) >= 3:
             return lines[0], lines[1], lines[2]
     except Exception as e:
-        sys.exit(f"[Fehler] TLE-Abruf gescheitert: {e}")
-    sys.exit("[Fehler] Unerwartetes TLE-Format von Celestrak")
+        sys.exit(f"[Error] TLE fetch failed: {e}")
+    sys.exit("[Error] Unexpected TLE format from Celestrak")
 
 
-# ── Geometrie-Hilfen ───────────────────────────────────────────────────────────
+# ── Geometry helpers ───────────────────────────────────────────────────────────
 
 def sep_vec(alt1, az1, alt2, az2):
-    """Vektorisierter Winkelabstand (Grad) zwischen zwei Altazimut-Positionen."""
+    """Vectorised angular separation (degrees) between two alt/az positions."""
     a1, z1 = np.radians(alt1), np.radians(az1)
     a2, z2 = np.radians(alt2), np.radians(az2)
     c = np.sin(a1) * np.sin(a2) + np.cos(a1) * np.cos(a2) * np.cos(z1 - z2)
@@ -60,22 +60,22 @@ def sep_vec(alt1, az1, alt2, az2):
 
 
 def chord_coverage(min_sep_deg: float, r_deg: float) -> float:
-    """Anteil des Durchmessers, durch den die ISS zieht (0–100 %)."""
+    """Fraction of the disk diameter the ISS path crosses (0–100 %)."""
     if min_sep_deg >= r_deg:
         return 0.0
     return math.sqrt(max(0.0, 1.0 - (min_sep_deg / r_deg) ** 2)) * 100.0
 
 
 def azimuth_label(az_deg: float) -> str:
-    labels = ["N","NNO","NO","ONO","O","OSO","SO","SSO",
+    labels = ["N","NNE","NE","ENE","E","ESE","SE","SSE",
               "S","SSW","SW","WSW","W","WNW","NW","NNW"]
     return labels[round(az_deg / 22.5) % 16]
 
 
-# ── Beobachternetz ─────────────────────────────────────────────────────────────
+# ── Observer grid ──────────────────────────────────────────────────────────────
 
 def observer_ring(lat: float, lon: float, radius_km: float) -> list[tuple[float, float]]:
-    """Mittelpunkt + 8 Punkte auf dem Radius-Kreis (Himmelsrichtungen + 45°)."""
+    """Centre point plus 8 points on the search-radius circle (every 45°)."""
     pts = [(lat, lon)]
     if radius_km > 0.1:
         for bearing_deg in range(0, 360, 45):
@@ -86,14 +86,14 @@ def observer_ring(lat: float, lon: float, radius_km: float) -> list[tuple[float,
     return pts
 
 
-# ── Grobscan ──────────────────────────────────────────────────────────────────
+# ── Coarse scan ────────────────────────────────────────────────────────────────
 
 def coarse_scan(
     lat: float, lon: float, days: int, ts, eph, iss
 ) -> tuple[list[tuple[float, str]], float]:
     """
-    Vektorisierter Scan vom Zentrum-Beobachter.
-    Gibt (Kandidatenliste, t0_tt) zurück; Kandidaten sind (tt_jd, körper).
+    Vectorised scan from the centre observer.
+    Returns (candidate list, t0_tt); candidates are (tt_jd, body_name).
     """
     earth    = eph["earth"]
     observer = wgs84.latlon(lat, lon)
@@ -104,7 +104,7 @@ def coarse_scan(
     tt    = t0_tt + np.arange(n) * (COARSE_STEP_S / 86400.0)
     t_arr = ts.tt_jd(tt)
 
-    print(f"  Grobscan: {n:,} Schritte à {COARSE_STEP_S} s  ...", end=" ", flush=True)
+    print(f"  Coarse scan: {n:,} steps × {COARSE_STEP_S} s  ...", end=" ", flush=True)
 
     iss_alt, iss_az, _   = (iss - observer).at(t_arr).altaz()
     earth_at             = (earth + observer).at(t_arr)
@@ -125,7 +125,7 @@ def coarse_scan(
                   [(float(t), "moon") for t in hits_moon])
     candidates.sort(key=lambda x: x[0])
 
-    # Cluster: aufeinanderfolgende Treffer desselben Körpers zusammenfassen
+    # Cluster consecutive hits for the same body into a single candidate
     clustered: list[tuple[float, str]] = []
     last_t: dict[str, float] = {}
     for t_c, body in candidates:
@@ -133,11 +133,11 @@ def coarse_scan(
             clustered.append((t_c, body))
         last_t[body] = t_c
 
-    print(f"{len(clustered)} Kandidaten.")
+    print(f"{len(clustered)} candidates.")
     return clustered, t0_tt
 
 
-# ── Feinscan ──────────────────────────────────────────────────────────────────
+# ── Fine scan ──────────────────────────────────────────────────────────────────
 
 def fine_scan(
     t_cand_tt: float,
@@ -146,8 +146,8 @@ def fine_scan(
     ts, eph, iss,
 ) -> dict | None:
     """
-    Präziser Scan im Fenster ±FINE_WINDOW_S um einen Kandidaten.
-    Prüft alle Beobachterpunkte im Radius und gibt das beste Ergebnis zurück.
+    High-resolution scan in the window ±FINE_WINDOW_S around a candidate.
+    Checks every observer point in the search radius; returns the best result.
     """
     earth    = eph["earth"]
     body_eph = eph["sun"] if body_name == "sun" else eph["moon"]
@@ -173,21 +173,21 @@ def fine_scan(
         min_sep = float(sep[idx])
 
         if min_sep >= r_deg:
-            continue  # ISS verfehlt die Scheibe an diesem Punkt
+            continue  # ISS misses the disk at this observer location
 
-        # Dauer: Zeitschritte, in denen ISS innerhalb der Scheibe liegt
+        # Duration: number of fine steps where ISS is inside the disk
         in_disk    = valid & (sep < r_deg)
         duration_s = float(np.sum(in_disk)) * FINE_STEP_S
 
-        # Körper-Position zum Transitzeitpunkt (Einzelschritt für Ausgabe)
+        # Single-point positions at the transit moment (for output)
         t_transit  = ts.tt_jd(float(tt[idx]))
         t_utc      = t_transit.utc_datetime()
         ba, baz, _ = (earth + obs).at(t_transit).observe(body_eph).apparent().altaz()
 
-        # ISS-Position für Höhenwinkel
+        # ISS altitude/azimuth at transit moment
         ia, iaz, _ = (iss - obs).at(t_transit).altaz()
 
-        # Abstand dieses Beobachters vom Suchzentrum
+        # Distance of this observer from the search centre
         clat, clon = observers[0]
         dist_km = math.sqrt(
             ((obs_lat - clat) * 111.0) ** 2 +
@@ -217,7 +217,7 @@ def fine_scan(
     return best
 
 
-# ── Orchestrierung ─────────────────────────────────────────────────────────────
+# ── Orchestration ──────────────────────────────────────────────────────────────
 
 def find_all_transits(
     lat: float, lon: float, radius_km: float, days: int, ts, eph, iss
@@ -225,13 +225,13 @@ def find_all_transits(
     observers = observer_ring(lat, lon, radius_km)
     clustered, _ = coarse_scan(lat, lon, days, ts, eph, iss)
 
-    print(f"  Feinscan: {len(clustered)} Kandidaten analysieren ...", flush=True)
+    print(f"  Fine scan: analysing {len(clustered)} candidates ...", flush=True)
 
     transits: list[dict] = []
-    seen: list[tuple[float, str]] = []   # (tt, körper) bereits gefundener Transite
+    seen: list[tuple[float, str]] = []   # (tt, body) of already-found transits
 
     for t_cand, body in clustered:
-        # Nicht denselben Transit zweimal zählen
+        # Skip if a transit for this body was already found at a nearby time
         if any(abs(t_cand - st) * 86400 < DEDUP_S and sb == body for st, sb in seen):
             continue
 
@@ -244,7 +244,7 @@ def find_all_transits(
     return transits
 
 
-# ── Ausgabe ───────────────────────────────────────────────────────────────────
+# ── Output ─────────────────────────────────────────────────────────────────────
 
 def print_results(
     transits: list[dict],
@@ -257,96 +257,95 @@ def print_results(
 
     print()
     print("═" * W)
-    print("  ISS-TRANSIT-FINDER  –  Sonnentransite & Mondtransite")
+    print("  ISS TRANSIT FINDER  –  Solar & Lunar Transits")
     print("─" * W)
     loc_str = f"{location_name}  " if location_name else ""
     ns = "N" if lat >= 0 else "S"
-    ew = "O" if lon >= 0 else "W"
-    print(f"  Ort:     {loc_str}{abs(lat):.4f}° {ns},  {abs(lon):.4f}° {ew}")
-    print(f"  Radius:  {radius_km:.0f} km")
-    print(f"  Periode: {now.strftime('%d.%m.%Y')} – {end.strftime('%d.%m.%Y')} UTC")
+    ew = "E" if lon >= 0 else "W"
+    print(f"  Location: {loc_str}{abs(lat):.4f}° {ns},  {abs(lon):.4f}° {ew}")
+    print(f"  Radius:   {radius_km:.0f} km")
+    print(f"  Period:   {now.strftime('%Y-%m-%d')} – {end.strftime('%Y-%m-%d')} UTC")
     print("═" * W)
 
     if not transits:
         print()
-        print("  Keine ISS-Transite in diesem Zeitraum und Gebiet gefunden.")
+        print("  No ISS transits found for this period and area.")
         print()
-        print("  Hinweis: ISS-Transite vor Sonne/Mond sind sehr seltene Ereignisse.")
-        print("  Typisch: 0–3 Transite pro Monat an einem gegebenen Standort.")
+        print("  Note: ISS transits across the Sun or Moon are rare events.")
+        print("  Typical rate: 0–3 transits per month at any given location.")
         print()
         return
 
     for i, tr in enumerate(transits, 1):
-        dt    = tr["time"]
+        dt     = tr["time"]
         is_sun = tr["body"] == "sun"
-        label  = "SONNEN-TRANSIT  ☀" if is_sun else "MOND-TRANSIT  🌙"
+        label  = "SOLAR TRANSIT  ☀" if is_sun else "LUNAR TRANSIT  🌙"
         sep_am = tr["min_sep_am"]
         r_am   = tr["r_am"]
-        day_str = dt.strftime("%d.%m.%Y")
 
         print()
-        print(f"  # {i}  {label}  –  {day_str}")
+        print(f"  # {i}  {label}  –  {dt.strftime('%Y-%m-%d')}")
         print("─" * W)
-        print(f"  Zeitpunkt (UTC): {dt.strftime('%H:%M:%S')}")
-        print(f"  Dauer:           {tr['duration_s']:.1f} s")
+        print(f"  Time (UTC):      {dt.strftime('%H:%M:%S')}")
+        print(f"  Duration:        {tr['duration_s']:.1f} s")
 
         if sep_am < r_am:
-            kern = "KERN-TRANSIT  ✓  (ISS zieht über die Scheibenmitte)"
-            print(f"  Min. Abstand:    {sep_am:.1f}\"  →  {kern}")
+            print(f"  Min. separation: {sep_am:.1f}\"  →  CENTRAL TRANSIT ✓  (crosses disc centre)")
         else:
-            print(f"  Min. Abstand:    {sep_am:.1f}\"  (Scheiben-Radius: {r_am:.1f}\")")
-        print(f"  Sehnen-Anteil:   {tr['coverage']:.0f} % des Scheibendurchmessers")
+            print(f"  Min. separation: {sep_am:.1f}\"  (disc radius: {r_am:.1f}\")")
+        print(f"  Chord coverage:  {tr['coverage']:.0f} % of disc diameter")
 
-        body_label = "Sonne" if is_sun else "Mond"
+        body_label = "Sun" if is_sun else "Moon"
         az_l = azimuth_label(tr["body_az"])
-        print(f"  {body_label}-Position:  Höhe {tr['body_alt']:.1f}°,  "
-              f"Azimut {tr['body_az']:.1f}° ({az_l})")
+        print(f"  {body_label} position:   alt {tr['body_alt']:.1f}°,  "
+              f"az {tr['body_az']:.1f}° ({az_l})")
         iss_az_l = azimuth_label(tr["iss_az"])
-        print(f"  ISS-Position:    Höhe {tr['iss_alt']:.1f}°,  "
-              f"Azimut {tr['iss_az']:.1f}° ({iss_az_l})")
+        print(f"  ISS position:    alt {tr['iss_alt']:.1f}°,  "
+              f"az {tr['iss_az']:.1f}° ({iss_az_l})")
 
         if tr["obs_dist_km"] < 1.0:
-            vis_str = "Standort-Mittelpunkt"
+            vis_str = "search centre"
         else:
-            vis_str = f"~{tr['obs_dist_km']:.0f} km vom Mittelpunkt"
-        print(f"  Bester Punkt:    {tr['obs_lat']:.4f}° N,  "
-              f"{tr['obs_lon']:.4f}° O  ({vis_str})")
+            vis_str = f"~{tr['obs_dist_km']:.0f} km from centre"
+        print(f"  Best location:   {tr['obs_lat']:.4f}° N,  "
+              f"{tr['obs_lon']:.4f}° E  ({vis_str})")
 
     print()
     print("─" * W)
-    print(f"  Gesamt: {len(transits)} Transit(e) gefunden.")
+    print(f"  Total: {len(transits)} transit(s) found.")
     print("═" * W)
     print()
-    print("  Hinweise:")
-    print("  • Genauigkeit hängt vom TLE-Alter ab (< 2 Tage empfohlen).")
-    print("  • Sichtbarkeitskorridor ist typisch 5–15 km breit.")
-    print("  • Bei Sonnen-Transiten: Sonnenfilter verwenden!")
+    print("  Notes:")
+    print("  • Accuracy depends on TLE age (< 2 days recommended).")
+    print("  • Visibility corridor is typically 5–15 km wide.")
+    print("  • Solar transits require a proper solar filter!")
     print()
 
 
-# ── Einstiegspunkt ────────────────────────────────────────────────────────────
+# ── Entry point ────────────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="ISS-Transite vor Sonne und Mond für die nächsten N Tage berechnen",
+        description="Calculate ISS transits across the Sun and Moon for the next N days",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Beispiele:
+Examples:
   python transit_finder.py --lat 50.11 --lon 8.68 --radius 100 --name Frankfurt
   python transit_finder.py --lat 48.14 --lon 11.58 --days 14
   python transit_finder.py --lat 52.52 --lon 13.41 --radius 25 --name Berlin
+  python transit_finder.py --lat 51.50 --lon -0.12 --radius 75 --name London
 """,
     )
     p.add_argument("--lat",    type=float, required=True,
-                   help="Geografische Breite in Grad (N positiv)")
+                   help="Latitude in degrees (positive = North)")
     p.add_argument("--lon",    type=float, required=True,
-                   help="Geografische Länge in Grad (O positiv)")
+                   help="Longitude in degrees (positive = East)")
     p.add_argument("--radius", type=float, default=50.0,
-                   help="Suchradius in km (Standard: 50)")
+                   help="Search radius in km (default: 50)")
     p.add_argument("--days",   type=int,   default=7,
-                   help="Vorhersagezeitraum in Tagen (Standard: 7)")
+                   help="Forecast period in days (default: 7)")
     p.add_argument("--name",   type=str,   default="",
-                   help="Ortsbezeichnung für die Ausgabe (optional)")
+                   help="Location name for display (optional)")
     return p.parse_args()
 
 
@@ -354,14 +353,14 @@ def main() -> None:
     args = parse_args()
 
     print()
-    print("ISS-Transit-Finder – Initialisierung")
+    print("ISS Transit Finder – Initialising")
     print("─" * 45)
 
-    print(f"  Lade TLE (NORAD {NORAD_ISS}) von Celestrak ...", end=" ", flush=True)
+    print(f"  Fetching TLE (NORAD {NORAD_ISS}) from Celestrak ...", end=" ", flush=True)
     tle_name, line1, line2 = fetch_tle()
     print(f"OK  [{tle_name.strip()}]")
 
-    print("  Lade Planetenephemeriden (de421.bsp)  ...", end=" ", flush=True)
+    print("  Loading planetary ephemeris (de421.bsp)  ...", end=" ", flush=True)
     ts  = load.timescale()
     eph = load("de421.bsp")
     iss = EarthSatellite(line1, line2, tle_name, ts)
@@ -369,10 +368,10 @@ def main() -> None:
 
     tle_epoch = iss.epoch.utc_datetime()
     age_days  = (datetime.now(timezone.utc) - tle_epoch).total_seconds() / 86400
-    print(f"  TLE-Epoche: {tle_epoch.strftime('%d.%m.%Y %H:%M UTC')}  "
-          f"(Alter: {age_days:.1f} Tage)")
+    print(f"  TLE epoch:  {tle_epoch.strftime('%Y-%m-%d %H:%M UTC')}  "
+          f"(age: {age_days:.1f} days)")
     if age_days > 3:
-        print(f"  ⚠  TLE älter als 3 Tage – Positionsgenauigkeit reduziert!")
+        print(f"  ⚠  TLE is more than 3 days old – positional accuracy reduced!")
 
     print()
     transits = find_all_transits(
