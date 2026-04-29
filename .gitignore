@@ -1,6 +1,9 @@
 # Skyfield ephemeris data
 *.bsp
 
+# Generated maps
+maps/
+
 # Python
 __pycache__/
 *.py[cod]
