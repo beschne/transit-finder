@@ -15,11 +15,15 @@ Positions are computed with [Skyfield](https://rhodesmill.org/skyfield/) using D
 
 ## Requirements
 
-```
+```bash
+# Core dependencies (required)
 pip install skyfield requests numpy
+
+# Map generation (optional)
+pip install matplotlib contextily pyproj
 ```
 
-Skyfield automatically downloads `de421.bsp` (~17 MB) on first run.
+Skyfield automatically downloads `de421.bsp` (~17 MB) on first run. Maps are written to `maps/` and can be skipped with `--no-maps`.
 
 ## Usage
 
@@ -34,6 +38,7 @@ python transit_finder.py --lat <latitude> --lon <longitude> [options]
 | `--radius` | Search radius in km | 50 |
 | `--days` | Forecast period in days | 7 |
 | `--name` | Location name for display | — |
+| `--no-maps` | Skip PNG map generation | maps enabled |
 
 ### Examples
 
@@ -101,8 +106,11 @@ ISS Transit Finder – Initialising
 
 ## Dependencies
 
-| Package | Purpose |
-|---|---|
-| [skyfield](https://rhodesmill.org/skyfield/) | Satellite & planetary position calculations |
-| [numpy](https://numpy.org/) | Vectorised coarse-scan arithmetic |
-| [requests](https://docs.python-requests.org/) | TLE download from Celestrak |
+| Package | Required | Purpose |
+|---|---|---|
+| [skyfield](https://rhodesmill.org/skyfield/) | Yes | Satellite & planetary position calculations |
+| [numpy](https://numpy.org/) | Yes | Vectorised coarse-scan arithmetic |
+| [requests](https://docs.python-requests.org/) | Yes | TLE download from Celestrak |
+| [matplotlib](https://matplotlib.org/) | Optional | Map rendering |
+| [contextily](https://contextily.readthedocs.io/) | Optional | Basemap tile download for maps |
+| [pyproj](https://pyproj4.github.io/pyproj/) | Optional | Coordinate projection for maps |
