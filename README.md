@@ -1,5 +1,7 @@
 # ISS Transit Finder
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Calculates when the International Space Station (ISS) passes in front of the **Sun** or **Moon** as seen from a defined location and search radius, for the next N days.
 
 ISS transits across the solar or lunar disc are rare, fleeting events (typically 0.5–2 seconds) visible only from a narrow corridor on the ground. This tool finds them for any location on Earth.
