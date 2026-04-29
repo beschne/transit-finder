@@ -46,6 +46,9 @@ python transit_finder.py --lat 48.14 --lon 11.58 --days 14 --name Munich
 
 # London, 75 km radius
 python transit_finder.py --lat 51.50 --lon -0.12 --radius 75 --name London
+
+# Bad Homburg, 30 km radius, 7 days
+python transit_finder.py --lat 50.23 --lon 8.62 --radius 30 --name "Bad Homburg"
 ```
 
 ### Sample output
