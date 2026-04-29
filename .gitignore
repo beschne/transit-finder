@@ -1,0 +1,7 @@
+# Skyfield ephemeris data
+*.bsp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
